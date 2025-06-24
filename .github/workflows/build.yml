@@ -127,13 +127,32 @@ jobs:
           
           echo "Export failed, trying manual IPA creation..."
           
-          # Manual IPA creation for unsigned builds
-          mkdir -p $RUNNER_TEMP/Payload
-          cp -r $RUNNER_TEMP/Broke.xcarchive/Products/Applications/Broke.app $RUNNER_TEMP/Payload/
-          cd $RUNNER_TEMP
-          zip -r export/Broke.ipa Payload/
+          # Check what's in the archive
+          echo "Contents of archive:"
+          find $RUNNER_TEMP/Broke.xcarchive -name "*.app" -type d
           
-          echo "Manual IPA creation completed"
+          # Create necessary directories
+          mkdir -p $RUNNER_TEMP/export
+          mkdir -p $RUNNER_TEMP/Payload
+          
+          # Find and copy the .app bundle
+          APP_PATH=$(find $RUNNER_TEMP/Broke.xcarchive -name "*.app" -type d | head -n 1)
+          if [ -n "$APP_PATH" ]; then
+            echo "Found app at: $APP_PATH"
+            cp -r "$APP_PATH" $RUNNER_TEMP/Payload/
+            
+            # Create IPA (using cd to ensure correct internal structure)
+            cd $RUNNER_TEMP
+            zip -r export/Broke.ipa Payload/
+            
+            echo "Manual IPA creation completed"
+            ls -la $RUNNER_TEMP/export/
+          else
+            echo "Could not find .app bundle in archive"
+            echo "Archive contents:"
+            ls -la $RUNNER_TEMP/Broke.xcarchive/
+            exit 1
+          fi
         fi
           
     - name: Prepare Release Assets
