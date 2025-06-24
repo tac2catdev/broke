@@ -45,7 +45,7 @@ jobs:
         xcodebuild build \
           -project Broke.xcodeproj \
           -scheme Broke \
-          -destination 'platform=iOS Simulator,OS=latest' \
+          -sdk iphonesimulator \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO
           
