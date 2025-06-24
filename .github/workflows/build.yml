@@ -1,0 +1,179 @@
+name: Development Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      build_for_device:
+        description: 'Build IPA for device installation'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  validate:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+        
+    - name: Cache Swift Packages
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/Library/Caches/org.swift.swiftpm/
+          ~/.swiftpm/
+        key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
+          
+    - name: Resolve Dependencies
+      run: |
+        xcodebuild -resolvePackageDependencies -project Broke.xcodeproj -scheme Broke
+        
+    - name: Build for Simulator (Validation)
+      run: |
+        xcodebuild build \
+          -project Broke.xcodeproj \
+          -scheme Broke \
+          -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO
+          
+  build-for-device:
+    runs-on: macos-latest
+    needs: validate
+    if: github.event.inputs.build_for_device == 'true' || github.event_name != 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+        
+    - name: Cache Swift Packages
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/Library/Caches/org.swift.swiftpm/
+          ~/.swiftpm/
+        key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
+          
+    - name: Resolve Dependencies
+      run: |
+        xcodebuild -resolvePackageDependencies -project Broke.xcodeproj -scheme Broke
+        
+    - name: Increment Build Number
+      run: |
+        # Use GitHub run number as build number
+        /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" Broke/Info.plist
+        
+    - name: Archive for Device
+      run: |
+        xcodebuild archive \
+          -project Broke.xcodeproj \
+          -scheme Broke \
+          -destination generic/platform=iOS \
+          -archivePath $RUNNER_TEMP/Broke.xcarchive \
+          -allowProvisioningUpdates \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          DEVELOPMENT_TEAM=""
+          
+    - name: Export IPA
+      run: |
+        cat > $RUNNER_TEMP/ExportOptions.plist << EOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>compileBitcode</key>
+            <false/>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>thinning</key>
+            <string>&lt;none&gt;</string>
+        </dict>
+        </plist>
+        EOF
+        
+        xcodebuild -exportArchive \
+          -archivePath $RUNNER_TEMP/Broke.xcarchive \
+          -exportPath $RUNNER_TEMP/export \
+          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
+          
+    - name: Prepare Release Assets
+      run: |
+        cd $RUNNER_TEMP/export
+        
+        # Get version info
+        VERSION=$(grep -A1 "CFBundleShortVersionString" Broke/Info.plist | tail -1 | sed 's/.*<string>\(.*\)<\/string>.*/\1/')
+        BUILD=$GITHUB_RUN_NUMBER
+        COMMIT=$(echo $GITHUB_SHA | cut -c1-7)
+        
+        # Rename IPA with version info
+        IPA_NAME=$(ls *.ipa | head -n 1)
+        NEW_NAME="Broke-v${VERSION}-build${BUILD}-${COMMIT}.ipa"
+        mv "$IPA_NAME" "$NEW_NAME"
+        
+        # Create install instructions
+        cat > INSTALL_INSTRUCTIONS.md << EOF
+        # Installation Instructions for Broke iOS App
+        
+        ## Requirements
+        - iOS 16.4 or later
+        - NFC-capable iPhone
+        - AltServer installed on your computer
+        - USB cable to connect your phone
+        
+        ## Installation Steps
+        1. Download the \`$NEW_NAME\` file
+        2. Open AltServer on your computer
+        3. Connect your iPhone via USB and trust the computer
+        4. In AltServer menu, select "Install App..."
+        5. Choose the downloaded .ipa file
+        6. Enter your Apple ID and password when prompted
+        7. Wait for installation to complete
+        
+        ## Important Notes
+        - The app will expire after 7 days and need to be reinstalled
+        - Make sure "AltServer" is running when you want to refresh the app
+        - You can automate renewal with AltStore if you prefer
+        
+        ## Troubleshooting
+        - If installation fails, make sure your Apple ID doesn't have 2FA issues
+        - Try restarting AltServer if you get connection errors
+        - Ensure your iOS device trusts your computer
+        
+        ## App Version
+        - Version: $VERSION
+        - Build: $BUILD
+        - Commit: $COMMIT
+        EOF
+        
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Broke-iOS-Build-${{ github.run_number }}
+        path: |
+          ${{ runner.temp }}/export/*.ipa
+          ${{ runner.temp }}/export/INSTALL_INSTRUCTIONS.md
+        retention-days: 30
