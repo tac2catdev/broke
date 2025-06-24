@@ -2,7 +2,7 @@ name: Development Build
 
 on:
   push:
-    branches: [ "main" , "tac2catdev/workflow/initial" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -45,7 +45,7 @@ jobs:
         xcodebuild build \
           -project Broke.xcodeproj \
           -scheme Broke \
-          -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+          -destination 'platform=iOS Simulator,name=iPhone 14,OS=latest' \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO
           
