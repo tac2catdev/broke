@@ -2,7 +2,7 @@ name: Development Build
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -42,12 +42,15 @@ jobs:
         
     - name: Build for Simulator (Validation)
       run: |
+        # Just build for the simulator SDK - this is the most reliable approach
         xcodebuild build \
           -project Broke.xcodeproj \
           -scheme Broke \
           -sdk iphonesimulator \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO
+          
+        echo "✅ Simulator build validation completed successfully"
           
   build-for-device:
     runs-on: macos-latest
@@ -96,29 +99,42 @@ jobs:
           
     - name: Export IPA
       run: |
+        # For AltServer, we need a different approach since we're not code signing
+        # First, let's try the debugging method
         cat > $RUNNER_TEMP/ExportOptions.plist << EOF
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
         <dict>
             <key>method</key>
-            <string>development</string>
+            <string>debugging</string>
             <key>uploadBitcode</key>
             <false/>
             <key>compileBitcode</key>
             <false/>
             <key>stripSwiftSymbols</key>
-            <true/>
+            <false/>
             <key>thinning</key>
             <string>&lt;none&gt;</string>
         </dict>
         </plist>
         EOF
         
-        xcodebuild -exportArchive \
+        if ! xcodebuild -exportArchive \
           -archivePath $RUNNER_TEMP/Broke.xcarchive \
           -exportPath $RUNNER_TEMP/export \
-          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
+          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist; then
+          
+          echo "Export failed, trying manual IPA creation..."
+          
+          # Manual IPA creation for unsigned builds
+          mkdir -p $RUNNER_TEMP/Payload
+          cp -r $RUNNER_TEMP/Broke.xcarchive/Products/Applications/Broke.app $RUNNER_TEMP/Payload/
+          cd $RUNNER_TEMP
+          zip -r export/Broke.ipa Payload/
+          
+          echo "Manual IPA creation completed"
+        fi
           
     - name: Prepare Release Assets
       run: |
