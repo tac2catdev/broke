@@ -2,7 +2,7 @@ name: Development Build
 
 on:
   push:
-    branches: [ "main" , "tac2catdev/workflows/initial" ]
+    branches: [ "main" , "tac2catdev/workflow/initial" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
